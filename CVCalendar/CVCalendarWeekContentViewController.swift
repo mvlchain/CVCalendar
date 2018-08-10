@@ -52,8 +52,18 @@ public final class CVCalendarWeekContentViewController: CVCalendarContentViewCon
         }
 
         if let presented = weekViews[presented] {
-            insertWeekView(getPreviousWeek(presented), withIdentifier: previous)
-            insertWeekView(getFollowingWeek(presented), withIdentifier: following)
+            // check week boundary
+            // previous week check
+            let previousWeek = getPreviousWeek(presented)
+            if let lastDateOfPreviousWeek = previousWeek.dayViews.last?.date.convertedDate(), let earlistDate = self.calendarView.delegate?.earliestSelectableDate?(), earlistDate.timeIntervalSince(lastDateOfPreviousWeek) < 0 {
+                insertWeekView(previousWeek, withIdentifier: previous)
+            }
+            
+            // following week check
+            let followingWeek = getFollowingWeek(presented)
+            if let firstDateOfNextWeek = followingWeek.dayViews.first?.date.convertedDate(), let latestDate = self.calendarView.delegate?.latestSelectableDate?(), firstDateOfNextWeek.timeIntervalSince(latestDate) < 0 {
+                insertWeekView(followingWeek, withIdentifier: following)
+            }
         }
     }
 
@@ -87,6 +97,14 @@ public final class CVCalendarWeekContentViewController: CVCalendarContentViewCon
             scrollView.scrollRectToVisible(weekViewFrame, animated: false)
         }
     }
+    
+    public func scrollToPresentedView() {
+        if let presentedWeek = weekViews[presented] {
+            var weekViewFrame = presentedWeek.frame
+            weekViewFrame.origin.x = weekViewFrame.width * CGFloat(indexOfIdentifier(presented))
+            scrollView.scrollRectToVisible(weekViewFrame, animated: false)
+        }
+    }
 
     // MARK: - Load management
 
@@ -94,27 +112,61 @@ public final class CVCalendarWeekContentViewController: CVCalendarContentViewCon
         if let presentedWeek = weekViews[presented], let followingWeek = weekViews[following] {
             if pageLoadingEnabled {
                 pageLoadingEnabled = false
-
+                
                 weekViews[previous]?.removeFromSuperview()
                 replaceWeekView(presentedWeek, withIdentifier: previous, animatable: false)
                 replaceWeekView(followingWeek, withIdentifier: self.presented, animatable: true)
-
+                
+                self.calendarView.delegate?.didShowNextWeekView?(firstDate: followingWeek.dayViews.first!.date, lastDate: followingWeek.dayViews.last!.date)
+                
+                // following week check
+                let nextFollowingWeek = getFollowingWeek(followingWeek)
+                if let firstDateOfNextWeek = nextFollowingWeek.dayViews.first?.date.convertedDate(), let latestDate = self.calendarView.delegate?.latestSelectableDate?(), firstDateOfNextWeek.timeIntervalSince(latestDate) > 0 {
+                    // do nothing
+                    weekViews[following] = nil
+                    reloadWeekViews()
+                    return
+                }
                 insertWeekView(getFollowingWeek(followingWeek), withIdentifier: following)
             }
+        } else if let _ = weekViews[presented] {
+            // next week doesn't exist
+            scrollToPresentedView()
         }
     }
-
+    
     public func scrolledRight() {
         if let presentedWeek = weekViews[presented], let previousWeek = weekViews[previous] {
             if pageLoadingEnabled {
                 pageLoadingEnabled = false
-
+                
+                if let lastDateOfPreviousWeek = previousWeek.dayViews.last?.date.convertedDate(), let earlistDate = self.calendarView.delegate?.earliestSelectableDate?(), earlistDate.timeIntervalSince(lastDateOfPreviousWeek) > 0 {
+                    // do nothing
+                    var weekViewFrame = presentedWeek.frame
+                    weekViewFrame.origin.x = weekViewFrame.width * CGFloat(indexOfIdentifier(presented))
+                    scrollView.scrollRectToVisible(weekViewFrame, animated: false)
+                    return
+                }
+                
                 weekViews[following]?.removeFromSuperview()
                 replaceWeekView(presentedWeek, withIdentifier: following, animatable: false)
                 replaceWeekView(previousWeek, withIdentifier: presented, animatable: true)
-
+                
+                self.calendarView.delegate?.didShowPreviousWeekView?(firstDate: previousWeek.dayViews.first!.date, lastDate: previousWeek.dayViews.last!.date)
+                
+                // previous week check
+                let beforePreviousWeek = getPreviousWeek(previousWeek)
+                if let lastDateOfPreviousWeek = beforePreviousWeek.dayViews.last?.date.convertedDate(), let earlistDate = self.calendarView.delegate?.earliestSelectableDate?(), earlistDate.timeIntervalSince(lastDateOfPreviousWeek) > 0 {
+                    // do nothing
+                    //weekViews[previous]?.removeFromSuperview()
+                    weekViews[previous] = nil
+                    reloadWeekViews()
+                    return
+                }
                 insertWeekView(getPreviousWeek(previousWeek), withIdentifier: previous)
             }
+        }  else if let _ = weekViews[presented] {
+            scrollToPresentedView()
         }
     }
 
@@ -313,7 +365,8 @@ extension CVCalendarWeekContentViewController {
             let previousMonthView = monthViews[previous] ,
             presentedWeekView.monthView == presentedMonthView {
                 for weekView in presentedMonthView.weekViews {
-                    if weekView.index == presentedWeekView.index - 1 {
+                    // 두번째 주인 경우, 첫주가 아닌 전달 마지막주 리턴.
+                    if presentedWeekView.index != 1, weekView.index == presentedWeekView.index - 1 {
                         return weekView
                     }
                 }
@@ -345,7 +398,8 @@ extension CVCalendarWeekContentViewController {
                 }
 
                 for weekView in followingMonthView.weekViews {
-                    if weekView.index == 0 {
+                    // 첫주는 이전달의 마지막주와 겹치므로, 두번째 주를 리턴
+                    if weekView.index == 1 {
                         return weekView
                     }
                 }
